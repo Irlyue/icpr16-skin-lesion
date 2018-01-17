@@ -10,6 +10,7 @@ import tensorflow as tf
 
 logger = my_utils.get_default_logger()
 parser = argparse.ArgumentParser()
+parser.add_argument('--n_runs', type=int, default=10)
 parser.add_argument('--n_gpus', type=int, default=0)
 parser.add_argument('--n_patches', type=int, default=100)
 parser.add_argument('--batch_size', type=int, default=32)
@@ -36,17 +37,24 @@ class RunningModel:
                 self.inference_prob(image_l, image_g)
         logger.info('Done in %.4fs(%.4fsecs per run)' % (timer.eclipsed, timer.eclipsed / n))
 
-    def run_n_step(self, n_patches=100, same_image=True):
-        n_runs = n_patches // self.batch_size
-        logger.info('Run %d steps for %d patches...' % (n_runs, n_patches))
-        image_l = np.random.randint(255, size=(self.batch_size, 31, 31, 3), dtype=np.uint8)
-        image_g = np.random.randint(255, size=(self.batch_size, 201, 201, 3), dtype=np.uint8)
+    def run_n_step(self, n_runs=10, n_patches=100, same_image=True):
+        def run_once():
+            image_l = np.random.randint(255, size=(self.batch_size, 31, 31, 3), dtype=np.uint8)
+            image_g = np.random.randint(255, size=(self.batch_size, 201, 201, 3), dtype=np.uint8)
+            n = 20
+            with my_utils.Timer() as tt:
+                for i in range(n):
+                    if not same_image:
+                        image_l = np.random.randint(255, size=(self.batch_size, 31, 31, 3), dtype=np.uint8)
+                        image_g = np.random.randint(255, size=(self.batch_size, 201, 201, 3), dtype=np.uint8)
+                    self.inference_prob(image_l, image_g)
+            time_per_batch = tt.eclipsed * 1.0 / n
+            time_one_run = (n_patches / self.batch_size) * time_per_batch
+            return time_one_run
+
         with my_utils.Timer() as timer:
             for _ in range(n_runs):
-                if not same_image:
-                    image_l = np.random.randint(255, size=(self.batch_size, 31, 31, 3), dtype=np.uint8)
-                    image_g = np.random.randint(255, size=(self.batch_size, 201, 201, 3), dtype=np.uint8)
-                self.inference_prob(image_l, image_g)
+                run_once()
         logger.info('Done in %.4fs(%.4fsecs per run)' % (timer.eclipsed, timer.eclipsed / n_runs))
 
     def _build_feed_dict(self, image_l, image_g):
@@ -61,10 +69,10 @@ class RunningModel:
         return self.inference(image_l, image_g, ['prob'])[0]
 
 
-def test_forward_time(gpu_count=0):
-    mm = RunningModel(FLAGS.batch_size, gpu_count=gpu_count)
+def test_forward_time():
+    mm = RunningModel(FLAGS.batch_size, gpu_count=FLAGS.n_gpus)
     mm.pre_run_n_step()
-    mm.run_n_step(n_patches=FLAGS.n_patches)
+    mm.run_n_step(n_runs=FLAGS.n_runs, n_patches=FLAGS.n_patches)
 
 
 if __name__ == '__main__':
@@ -72,4 +80,4 @@ if __name__ == '__main__':
     logger.info('************************************************************************')
     logger.info(FLAGS)
     logger.info('************************************************************************')
-    test_forward_time(FLAGS.n_gpus)
+    test_forward_time()
